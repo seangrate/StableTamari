@@ -1,6 +1,21 @@
+from collections import defaultdict
 import itertools as it
+from typing import Sequence
 
+import math
 import numpy as np
+from scipy.spatial import ConvexHull
+
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+# for compatibility with Sage
+try:
+    from sage.rings.integer import Integer
+except ImportError as e:
+    pass
+
 
 class TropicalMatrix:
     def __init__(self, data: np.ndarray):
@@ -36,8 +51,13 @@ class TropicalMatrix:
         return other.__matmult__(self)
     
     def __pow__(self, n: int):
-        if not isinstance(n, int):
-            raise TypeError(f'{n} must be an integer.')
+        # if not isinstance(n, int):
+        #     # Sage shenanigans
+        #     try:
+        #         if isinstance(n, Integer):
+        #             n = int(n)
+        #     except NameError as e:
+        #         raise TypeError(f'{n} must be an integer.')
         if n < 0:
             raise ValueError(f'{n} must be nonnegative.')
         # NOTE: Taken from NumPy's matrix power function for convenenience.
@@ -66,3 +86,92 @@ class TropicalMatrix:
     # walks_matrix = TropicalMatrix(adj_matrix)**r
     # origin_idx = list(self.nodes()).index((0,0))
     # return {(0,0)} | {vertex for idx, vertex in enumerate(self.nodes()) if walks_matrix[origin_idx, idx] < np.inf}
+
+
+def coplanar_faces(hull):
+    coplanar_mask = np.zeros((len(hull.simplices), len(hull.simplices)), dtype=bool)
+    for i, simplex in enumerate(hull.simplices):
+        for j, other_simplex in enumerate(hull.simplices):
+            if i != j:
+                if j in hull.neighbors[i]:
+                    common_indices = [idx for idx in simplex if idx in other_simplex]
+                    simplex_diff_idx = list(set(simplex) - set(other_simplex))[0]
+                    other_simplex_diff_idx = list(set(other_simplex) - set(simplex))[0]
+                    defining_cross = np.cross(hull.points[common_indices[1]] - hull.points[common_indices[0]], hull.points[simplex_diff_idx] - hull.points[common_indices[0]])
+                    coplanar_mask[i, j] = math.isclose(defining_cross.dot(hull.points[other_simplex_diff_idx] - hull.points[common_indices[0]]), 0)
+                else:
+                    coplanar_mask[i, j] = False
+            else:
+                coplanar_mask[i, j] = True
+    return coplanar_mask
+
+
+def facet_points(hull, coplanar_mask):
+    facet_points = defaultdict(set)
+    visited_simplices = set()
+    for i, simplex in enumerate(hull.simplices):
+        if i not in visited_simplices:
+            visited_simplices.add(i)
+            facet_points[i].update(simplex)
+            for j, other_simplex in enumerate(hull.simplices):
+                if coplanar_mask[i, j]:
+                    visited_simplices.add(j)
+                    facet_points[i].update(other_simplex)
+    return list(map(list, facet_points.values()))
+
+
+def clockwise_around_center(point, centroid, defining_cross):
+    """
+    
+    Taken from https://stackoverflow.com/a/74413211
+    """
+    # make arctan2 function that returns a value from [0, 2 pi) instead of [-pi, pi)
+    arctan2 = lambda s, c: angle if (angle := np.arctan2(s, c)) >= 0 else 2 * np.pi + angle
+    
+    diff = point - centroid
+    rcos = np.dot(diff, centroid)
+    rsin = np.dot(defining_cross, np.cross(diff, centroid))
+    return arctan2(rsin, rcos).item()
+
+
+def plot_convex_hull(hull):
+    dim = hull.points.shape[1]
+    if dim not in {2,3}:
+        return
+    points = hull.points
+
+    fig = plt.figure()
+    if dim == 2:
+        ax = fig.add_subplot(111)
+        hull_vertices = points[hull.vertices]
+        hull_vertices = np.append(hull_vertices, [hull_vertices[0]], axis=0)
+        ax.plot(hull_vertices[:, 0], hull_vertices[:, 1], 'r--')
+    if dim == 3:
+        ax = fig.add_subplot(111, projection='3d')
+        ax.scatter(points[:, 0], points[:, 1], points[:, 2], color='red')
+        facets = facet_points(hull, coplanar_faces(hull))
+        for facet in facets:
+            # reorder to be clockwise around the centroid
+            centroid = np.mean(points[facet], axis=0)
+            defining_cross = np.cross(points[facet[1]] - points[facet[0]], points[facet[2]] - points[facet[0]])
+            sorted_facet = sorted(facet, key=lambda idx: clockwise_around_center(points[idx], centroid, defining_cross))
+            cyclic_facet = np.append(sorted_facet, sorted_facet[0])
+            # plot the edges
+            ax.plot(points[cyclic_facet, 0], points[cyclic_facet, 1], points[cyclic_facet, 2], 'k-')
+            
+            # plot the facets
+            vertices = [points[facet_idx] for facet_idx in cyclic_facet]
+            # vertices = [points[simplex[0]], points[simplex[1]], points[simplex[2]], points[simplex[0]]]
+            mpl_facet = Poly3DCollection([vertices], alpha=0.25, facecolor='cyan')
+            ax.add_collection3d(mpl_facet)
+        ax.set_zlim(-0.1, dim + .1)
+    ax.set_xlim(-0.1, dim + .1)
+    ax.set_ylim(-0.1, dim + .1)
+    plt.show()
+
+def is_unimodal(sequence: Sequence[int]) -> bool:
+    # calculate consecutive, pairwise differences and see if sign changed in difference (increasing to decreasing or vice versa)
+    # sign can only change at most one time
+    first_diffs = [a-b for (a, b) in zip(sequence[:-1], sequence[1:]) if a-b != 0]  # discard 0 change
+    sign_flips = [1 if a*b < 0 else 0 for (a, b) in zip(first_diffs[:-1], first_diffs[1:])]
+    return sum(sign_flips) <= 1
