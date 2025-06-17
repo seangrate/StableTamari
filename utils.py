@@ -1,6 +1,6 @@
 from collections import defaultdict
 import itertools as it
-from typing import Sequence
+from typing import List, Sequence, Set
 
 import math
 import numpy as np
@@ -88,6 +88,38 @@ class TropicalMatrix:
     # return {(0,0)} | {vertex for idx, vertex in enumerate(self.nodes()) if walks_matrix[origin_idx, idx] < np.inf}
 
 
+def format_monomial(coeff: int, exponent: int, variable: str='t') -> str:
+    # coefficient is never zero a fiat
+    # if exponent == 0:
+    #     return f'{coeff}' 
+    sign_str = '' if coeff >= 0 else '-'
+    coeff_str = '' if abs(coeff) == 1 else str(abs(coeff))
+    variable_str = '' if exponent == 0 else variable
+    exponent_str = '' if exponent <= 1 else f'^{exponent}'
+    # if coeff == 1:
+    #     if exponent == 0:
+    #         return f'{coeff}'
+    #     elif exponent == 1:
+    #         return f'{variable}'
+    #     else:
+    #         return f'{variable}^{exponent}'
+    # elif coeff == -1:
+    #     if exponent == 0:
+    #         return f'{coeff}'
+    #     elif exponent == 1:
+    #         return f'-{variable}'
+    #     else:
+    #         return f'-{variable}^{exponent}'
+    # else:
+    #     if exponent == 0:
+    #         return f'{coeff}'
+    #     elif exponent == 1:
+    #         return f'{coeff}{variable}'
+    #     else:
+    #         return f'{coeff}{variable}^{exponent}'
+    return f'{sign_str}{coeff_str}{variable_str}{exponent_str}'
+            
+
 def coplanar_faces(hull):
     coplanar_mask = np.zeros((len(hull.simplices), len(hull.simplices)), dtype=bool)
     for i, simplex in enumerate(hull.simplices):
@@ -137,7 +169,7 @@ def clockwise_around_center(point, centroid, defining_cross):
 def plot_convex_hull(hull):
     dim = hull.points.shape[1]
     if dim not in {2,3}:
-        return
+        raise ValueError(f'Plotting only supported for 2D and 3D convex hulls, got {dim}D.')
     points = hull.points
 
     fig = plt.figure()
@@ -167,11 +199,58 @@ def plot_convex_hull(hull):
         ax.set_zlim(-0.1, dim + .1)
     ax.set_xlim(-0.1, dim + .1)
     ax.set_ylim(-0.1, dim + .1)
-    plt.show()
+    return ax
+    
+
+def find_peaks(sequence: Sequence[int], zero_indexed: bool=False) -> List[int]:
+    """Finds the indices of the peaks in a sequence.
+
+    Taken from https://stackoverflow.com/a/74556122
+    """
+    peak_indices = ((np.diff(np.sign(np.diff(sequence))) < 0).nonzero()[0] + 1).tolist()
+    if sequence[0] > sequence[1]:
+        peak_indices = [0] + peak_indices
+    if sequence[-1] > sequence[-2]:
+        peak_indices = peak_indices + [len(sequence) - 1]
+    return peak_indices if zero_indexed else [idx+1 for idx in peak_indices]
+
 
 def is_unimodal(sequence: Sequence[int]) -> bool:
-    # calculate consecutive, pairwise differences and see if sign changed in difference (increasing to decreasing or vice versa)
-    # sign can only change at most one time
-    first_diffs = [a-b for (a, b) in zip(sequence[:-1], sequence[1:]) if a-b != 0]  # discard 0 change
-    sign_flips = [1 if a*b < 0 else 0 for (a, b) in zip(first_diffs[:-1], first_diffs[1:])]
-    return sum(sign_flips) <= 1
+    # # calculate consecutive, pairwise differences and see if sign changed in difference (increasing to decreasing or vice versa)
+    # # sign can only change at most one time
+    # first_diffs = [a-b for (a, b) in zip(sequence[:-1], sequence[1:]) if a-b != 0]  # discard 0 change
+    # sign_flips = [1 if a*b < 0 else 0 for (a, b) in zip(first_diffs[:-1], first_diffs[1:])]
+    # return sum(sign_flips) <= 1
+    return len(find_peaks(sequence)) <= 1
+
+
+def is_log_concave(sequence: Sequence[int]) -> bool:
+    return all(b**2 >= a*c for (a, b, c) in zip(sequence[:-2], sequence[1:-1], sequence[2:]))
+
+
+def affine_transform(sequence):
+    """Computes the affine transformation between two polytopes defined by unimoal permutations.
+    
+    Notes
+    -----
+    Assumes that the sequence is a unimodal permutation.
+    Right now, this also assume that this is the transformation from P(sigma) to P((1,2,...,n)).
+    """
+    if not is_unimodal(sequence):
+        raise ValueError(f'{sequence} must be unimodal.')
+    peak_idx = find_peaks(sequence, zero_indexed=True)[0]
+
+    transition_matrix = np.zeros((len(sequence), len(sequence)), dtype=int)
+    for j, (start_row_idx, end_row_idx) in enumerate(zip(sequence[:-1], sequence[1:])):
+        start_row_idx, end_row_idx = sorted((start_row_idx, end_row_idx))
+        fill_value = 1 if j < peak_idx else -1
+        if j >= peak_idx:
+            j = j+1
+        transition_matrix[start_row_idx-1:end_row_idx-1, j] = fill_value
+    if peak_idx != 0:
+        transition_matrix[-1, peak_idx-1] = 1
+    transition_matrix[-1, peak_idx] = -1
+
+    shift_vector = np.hstack([np.zeros((peak_idx,), dtype=int), np.array(sequence)[peak_idx:]]).reshape(-1, 1)
+
+    return transition_matrix, shift_vector

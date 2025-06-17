@@ -8,7 +8,7 @@ import networkx as nx
 import numpy as np
 
 from orders import tamari_compare
-from utils import TropicalMatrix
+from utils import TropicalMatrix, format_monomial
 
 
 class LowerOrderIdeal:
@@ -124,7 +124,7 @@ class LowerOrderIdeal:
 
     @ft.cached_property
     def f_polynomial(self) -> str:
-        return ' + '.join(self._format_monomial(count, height, 't') for height, count in self.f_polynomial_counts.items())
+        return ' + '.join(format_monomial(count, height, 't') for height, count in self.f_polynomial_counts.items())
 
     @ft.cached_property
     def F_polynomial_counts(self) -> OrderedDict:
@@ -134,35 +134,4 @@ class LowerOrderIdeal:
     
     @ft.cached_property
     def F_polynomial(self) -> str:
-        return ' + '.join(self._format_monomial(count, height, 't') for height, count in self.F_polynomial_counts.items())
-    
-    def _format_monomial(self, coeff: int, exponent: int, variable: str='t') -> str:
-        # coefficient is never zero a fiat
-        # if exponent == 0:
-        #     return f'{coeff}'        
-        if coeff == 1:
-            if exponent == 0:
-                return f'{coeff}'
-            elif exponent == 1:
-                return f'{variable}'
-            else:
-                return f'{variable}^{exponent}'
-        else:
-            if exponent == 0:
-                return f'{coeff}'
-            elif exponent == 1:
-                return f'{coeff}{variable}'
-            else:
-                return f'{coeff}{variable}^{exponent}'
-            
-    @staticmethod
-    def is_unimodal(sequence: Sequence[int]) -> bool:
-        # calculate consecutive, pairwise differences and see if sign changed in difference (increasing to decreasing or vice versa)
-        # sign can only change at most one time
-        first_diffs = [a-b for (a, b) in zip(sequence[:-1], sequence[1:]) if a-b != 0]  # discard 0 change
-        sign_flips = [1 if a*b < 0 else 0 for (a, b) in zip(first_diffs[:-1], first_diffs[1:])]
-        return sum(sign_flips) <= 1
-    
-    @staticmethod
-    def is_log_concave(sequence: Sequence[int]) -> bool:
-        return all(b**2 >= a*c for (a, b, c) in zip(sequence[:-2], sequence[1:-1], sequence[2:]))
+        return ' + '.join(format_monomial(count, height, 't') for height, count in self.F_polynomial_counts.items())
