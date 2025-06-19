@@ -12,8 +12,32 @@ from utils import TropicalMatrix, format_monomial
 
 
 class LowerOrderIdeal:
-    def __init__(self, b: Sequence[int]):
-        self.root = b
+    def __init__(self, root: Sequence[int], mobius_lower: List[int]=None):
+        self.root = root
+
+        if mobius_lower is None:
+            mobius_lower = [0] * len(self.root)
+        
+        # Format is:
+        # `key` = sequence as tuple
+        # `value` = {"covered_by": set(), "covers": set()}
+        P = {}
+
+        # Construct covering relations
+        todo = set([self.root])
+        P[self.root] = {"covered_by": set(), "covers": set()}
+        while len(todo) > 0:
+            new_todo = set()
+            for a in todo:
+                for k in self.D(a):
+                    b = self.partial(a, k)
+                    if b not in P:
+                        P[b] = {"covered_by": set(), "covers": set()}
+                    P[a]["covers"].add(b)
+                    P[b]["covered_by"].add(a)
+                    new_todo.add(b)
+            todo = new_todo
+        self.nodes = list(P.keys())
 
     def __repr__(self):
         return f'{self.__class__.__name__}({self.root})'
@@ -21,10 +45,34 @@ class LowerOrderIdeal:
     def __len__(self):
         return len(self.nodes)
 
-    @ft.cached_property
-    def nodes(self) -> List[Sequence[int]]:
-        return [vector for vector in list(it.product(*(range(k+1) for k in self.root))) if tamari_compare(vector, self.root)]
-    
+    @staticmethod
+    def h(a):
+        ret = []
+        for i in range(len(a)):
+            j = i
+            while j > 0:
+                if a[j-1] <= a[i]:
+                    break
+                j -= 1
+            ret.append(j)
+        return ret
+
+    @staticmethod
+    def D(a):
+        h_vec = LowerOrderIdeal.h(a)
+        ret = []
+        for i in range(len(a)):
+            x = 0 if h_vec[i] == 0 else a[h_vec[i]-1]
+            y = a[i]
+            if x < y:
+                ret.append(i)
+        return ret
+
+    @staticmethod
+    def partial(a, k):
+        h_vec = LowerOrderIdeal.h(a)
+        return tuple([a[i] - 1 if h_vec[k] <= i <= k else a[i] for i in range(len(a))])
+        
     @ft.cached_property
     def order_matrix(self) -> np.ndarray:
         # the value in entry (i,j) stores if node i <= node j in the stable Tamari order
@@ -53,8 +101,8 @@ class LowerOrderIdeal:
         # make the Hasse diagram
         G = nx.DiGraph()
         nodes = [node for node in self.nodes]
-        # G.add_nodes_from([(node, {'height': -self.height(node, self.root)}) for node in nodes])
-        G.add_nodes_from([(node, {'height': self.height(tuple(np.zeros_like(node)), node)}) for node in nodes])
+        G.add_nodes_from([(node, {'height': -self.height(node, self.root)}) for node in nodes])
+        # G.add_nodes_from([(node, {'height': self.height(tuple(np.zeros_like(node)), node)}) for node in nodes])
         for i, node in enumerate(G.nodes):
             G.add_edges_from([(node, other_node) for j, other_node in enumerate(G.nodes) if i != j and self.height_matrix[i, j] == 1])
         

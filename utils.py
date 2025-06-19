@@ -215,6 +215,24 @@ def find_peaks(sequence: Sequence[int], zero_indexed: bool=False) -> List[int]:
     return peak_indices if zero_indexed else [idx+1 for idx in peak_indices]
 
 
+def find_pinnacles(sequence: Sequence[int]) -> List[int]:
+    """Finds the pinnacles in a sequence.
+    
+    A pinnacle is defined as the value where a peak occurs.
+    """
+    return [sequence[idx] for idx in find_peaks(sequence, zero_indexed=True)]
+
+
+def find_peaks_and_valleys(sequence: Sequence[int], zero_indexed: bool=False) -> List[int]:
+    """Finds the indices of the peaks in a sequence.
+
+    Taken from https://stackoverflow.com/a/74556122
+    """
+    peak_indices = ((np.diff(np.sign(np.diff(sequence))) < 0).nonzero()[0] + 1).tolist()
+    peak_indices = [0] + peak_indices + [len(sequence) - 1]
+    return peak_indices if zero_indexed else [idx+1 for idx in peak_indices]
+
+
 def is_unimodal(sequence: Sequence[int]) -> bool:
     # # calculate consecutive, pairwise differences and see if sign changed in difference (increasing to decreasing or vice versa)
     # # sign can only change at most one time
@@ -228,7 +246,7 @@ def is_log_concave(sequence: Sequence[int]) -> bool:
     return all(b**2 >= a*c for (a, b, c) in zip(sequence[:-2], sequence[1:-1], sequence[2:]))
 
 
-def affine_transform(sequence):
+def unimodal_affine_transform(sequence):
     """Computes the affine transformation between two polytopes defined by unimoal permutations.
     
     Notes
@@ -250,6 +268,41 @@ def affine_transform(sequence):
     if peak_idx != 0:
         transition_matrix[-1, peak_idx-1] = 1
     transition_matrix[-1, peak_idx] = -1
+
+    shift_vector = np.hstack([np.zeros((peak_idx,), dtype=int), np.array(sequence)[peak_idx:]]).reshape(-1, 1)
+
+    return transition_matrix, shift_vector
+
+
+def affine_transform(sequence):
+    """Computes the affine transformation between two polytopes defined by unimoal permutations.
+    
+    Notes
+    -----
+    Assumes that the sequence is a unimodal permutation.
+    Right now, this also assume that this is the transformation from P(sigma) to P((1,2,...,n)).
+    """
+    if is_unimodal(sequence):
+        return unimodal_affine_transform(sequence)
+    peak_indices = find_peaks(sequence, zero_indexed=True)
+
+    for (first_idx, second_idx) in zip(peak_indices[:-1], peak_indices[1:]):
+        # Sequence is descreasing.
+        if sequence[first_idx] - sequence[second_idx] > 0:
+            break
+        elif sequence[second_idx] - sequence[first_idx] < 0:
+            break
+    transition_matrix = np.zeros((len(sequence), len(sequence)), dtype=int)
+    current_peak_idx = peak_indices[0]
+    for j, (start_row_idx, end_row_idx) in enumerate(zip(sequence[:-1], sequence[1:])):
+        start_row_idx, end_row_idx = sorted((start_row_idx, end_row_idx))
+        fill_value = 1 if j < current_peak_idx else -1
+        if j >= current_peak_idx:
+            j = j+1
+        transition_matrix[start_row_idx-1:end_row_idx-1, j] = fill_value
+    if current_peak_idx != 0:
+        transition_matrix[-1, current_peak_idx-1] = 1
+    transition_matrix[-1, current_peak_idx] = -1
 
     shift_vector = np.hstack([np.zeros((peak_idx,), dtype=int), np.array(sequence)[peak_idx:]]).reshape(-1, 1)
 
