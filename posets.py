@@ -1,4 +1,4 @@
-from collections import Counter, OrderedDict
+from collections import Counter, OrderedDict, defaultdict
 import functools as ft
 import itertools as it
 from typing import List, Sequence
@@ -21,23 +21,28 @@ class LowerOrderIdeal:
         # Format is:
         # `key` = sequence as tuple
         # `value` = {"covered_by": set(), "covers": set()}
-        P = {}
+        self.covering_relations = defaultdict(lambda: {'covered_by': set(), 'covers': set()})
 
         # Construct covering relations
         todo = set([self.root])
-        P[self.root] = {"covered_by": set(), "covers": set()}
         while len(todo) > 0:
             new_todo = set()
             for a in todo:
                 for k in self.D(a):
                     b = self.partial(a, k)
-                    if b not in P:
-                        P[b] = {"covered_by": set(), "covers": set()}
-                    P[a]["covers"].add(b)
-                    P[b]["covered_by"].add(a)
+                    self.covering_relations[a]["covers"].add(b)
+                    self.covering_relations[b]["covered_by"].add(a)
                     new_todo.add(b)
             todo = new_todo
-        self.nodes = list(P.keys())
+        self.nodes = list(self.covering_relations.keys())
+
+    def covers(self, upper_node: Sequence[int], lower_node: Sequence[int]) -> bool:
+        """Checks if the upper node covers the lower node."""
+        return lower_node in self.covering_relations[upper_node]['covers']
+    
+    def covered_by(self, lower_node: Sequence[int], upper_node: Sequence[int]) -> bool:
+        """Checks if the lower node is covered by the upper node."""
+        return upper_node in self.covering_relations[lower_node]['covered_by']
 
     def __repr__(self):
         return f'{self.__class__.__name__}({self.root})'
